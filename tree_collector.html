@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tree Collector</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- SheetJS for Excel/CSV Bulk Upload parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        .leaflet-container {
+            width: 100%;
+            height: 100%;
+            border-radius: 0.75rem;
+            background-color: #1e293b;
+        }
+        /* Custom scrollbar for mobile drawers */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-full flex flex-col antialiased">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-emerald-800 text-white shadow-md z-30 flex-shrink-0">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="bg-emerald-700 p-2 rounded-lg text-yellow-300 text-xl shadow-inner">
+                    <i class="fa-solid fa-tree"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">Tree Collector</h1>
+                </div>
+            </div>
+
+            <!-- Stats & Mode Badges -->
+            <div class="flex items-center space-x-2 text-xs">
+                <span id="mode-badge" class="px-2.5 py-1 rounded-full font-semibold bg-amber-500 text-white shadow-sm">
+                    <i class="fa-solid fa-flask mr-1"></i> Demo Mode
+                </span>
+                <button onclick="openSettingsModal()" class="bg-emerald-900 hover:bg-emerald-950 text-white px-3 py-1.5 rounded-lg transition shadow flex items-center space-x-1">
+                    <i class="fa-solid fa-gear"></i>
+                    <span class="hidden sm:inline">Settings</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main App Body (Responsive Grid / Mobile Tabbed Layout) -->
+    <main class="flex-grow flex flex-col md:flex-row overflow-hidden relative">
+        
+        <!-- Left / Top: Map View Container -->
+        <div class="w-full md:w-7/12 lg:w-8/12 h-1/2 md:h-full p-2 md:p-4 flex flex-col flex-shrink-0">
+            <div class="bg-slate-900 rounded-xl shadow-md p-2 flex-grow flex flex-col border border-slate-700 relative">
+                <!-- Map Controls Overlay -->
+                <div class="absolute top-4 right-4 z-[400] flex flex-col gap-2">
+                    <button onclick="recenterMap()" class="bg-slate-800 hover:bg-slate-700 text-white p-2.5 rounded-lg shadow-md border border-slate-700 text-sm transition" title="Center Map">
+                        <i class="fa-solid fa-crosshairs"></i>
+                    </button>
+                    <button onclick="triggerQuickAddModal()" class="bg-emerald-600 hover:bg-emerald-700 text-white p-2.5 rounded-lg shadow-md text-sm transition" title="Add House">
+                        <i class="fa-solid fa-house-chimney-medical"></i>
+                    </button>
+                    <button onclick="openDropPileModal()" class="bg-amber-600 hover:bg-amber-700 text-white p-2.5 rounded-lg shadow-md text-sm transition" title="Drop Pile">
+                        <i class="fa-solid fa-layer-group"></i>
+                    </button>
+                </div>
+                <!-- Leaflet Map Element -->
+                <div id="map" class="w-full flex-grow rounded-lg"></div>
+            </div>
+        </div>
+
+        <!-- Right / Bottom: Interactive Tabbed Panel (Addresses, Estates, Piles, Add) -->
+        <div class="w-full md:w-5/12 lg:w-4/12 h-1/2 md:h-full p-2 md:p-4 flex flex-col bg-slate-100 overflow-hidden">
+            <div class="bg-white rounded-xl shadow-md border border-slate-200 flex flex-col h-full overflow-hidden">
+                
+                <!-- Panel Tab Navigation -->
+                <div class="flex border-b border-slate-200 bg-slate-50 flex-shrink-0 overflow-x-auto">
+                    <button onclick="switchTab('addresses')" id="tab-addresses" class="flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-semibold text-emerald-700 border-b-2 border-emerald-600 bg-white transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-house"></i> Houses (<span id="count-houses">0</span>)
+                    </button>
+                    <button onclick="switchTab('estates')" id="tab-estates" class="flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-medium text-slate-500 hover:text-slate-700 transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-map-location-dot"></i> Estates (<span id="count-estates">0</span>)
+                    </button>
+                    <button onclick="switchTab('piles')" id="tab-piles" class="flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-medium text-slate-500 hover:text-slate-700 transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-layer-group"></i> Piles (<span id="count-piles">0</span>)
+                    </button>
+                    <button onclick="switchTab('add')" id="tab-add" class="flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-medium text-slate-500 hover:text-slate-700 transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-circle-plus"></i> Add
+                    </button>
+                </div>
+
+                <!-- Tab Contents Container -->
+                <div class="flex-grow overflow-y-auto p-4 relative" id="tab-content-container">
+                    
+                    <!-- TAB 1: ADDRESSES LIST -->
+                    <div id="view-addresses" class="space-y-3">
+                        <div class="flex flex-col sm:flex-row items-center justify-between gap-2 mb-2">
+                            <input type="text" id="search-address" placeholder="Search address or estate..." oninput="renderLists()" class="w-full text-xs sm:text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <div class="flex gap-2 w-full sm:w-auto">
+                                <select id="filter-estate" onchange="renderLists()" class="text-xs sm:text-sm px-2 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 flex-1 sm:flex-initial">
+                                    <option value="all">All Estates</option>
+                                </select>
+                                <select id="filter-address" onchange="renderLists()" class="text-xs sm:text-sm px-2 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 flex-1 sm:flex-initial">
+                                    <option value="all">Status: All</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="collected">Collected</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="addresses-list" class="space-y-2.5 pb-4">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: ESTATES LIST -->
+                    <div id="view-estates" class="space-y-3 hidden">
+                        <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-xs text-emerald-900">
+                            <p class="font-bold mb-0.5"><i class="fa-solid fa-clock mr-1"></i> Estate Pickup Schedules</p>
+                            <p>Configure scheduled pickup times for each housing estate. Houses inherit their estate's pickup time.</p>
+                        </div>
+                        <div id="estates-list" class="space-y-2.5 pb-4">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: PILES LIST -->
+                    <div id="view-piles" class="space-y-3 hidden">
+                        <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-xs text-emerald-900">
+                            <p class="font-bold mb-0.5"><i class="fa-solid fa-truck mr-1"></i> Van Pickup Piles</p>
+                            <p>Piles of trees left by collector teams for the van to pick up.</p>
+                        </div>
+                        <div id="piles-list" class="space-y-2.5 pb-4">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- TAB 4: ADD NEW / BULK UPLOAD FORM -->
+                    <div id="view-add" class="space-y-4 hidden">
+                        <div class="flex bg-slate-200 p-1 rounded-lg text-xs">
+                            <button type="button" onclick="setAddType('house')" id="subtab-house" class="flex-1 py-1.5 font-semibold rounded-md bg-white shadow text-slate-800 transition">Add House</button>
+                            <button type="button" onclick="setAddType('bulk')" id="subtab-bulk" class="flex-1 py-1.5 font-medium rounded-md text-slate-600 transition">Bulk Upload</button>
+                            <button type="button" onclick="setAddType('pile')" id="subtab-pile" class="flex-1 py-1.5 font-medium rounded-md text-slate-600 transition">Drop Pile</button>
+                        </div>
+
+                        <!-- House Form -->
+                        <form id="form-house" onsubmit="handleAddHouse(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Street Address</label>
+                                <input type="text" id="new-house-addr" required placeholder="e.g. 14 Main Street" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-600 mb-1">Estate Name</label>
+                                    <input type="text" id="new-house-estate" list="estates-datalist" required placeholder="e.g. Castletown" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    <datalist id="estates-datalist"></datalist>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-600 mb-1">Pickup Time</label>
+                                    <input type="text" id="new-house-time" placeholder="e.g. 10:30 AM" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-600 mb-1">Tree Count</label>
+                                    <input type="number" id="new-house-trees" min="1" value="1" required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-600 mb-1">Contact / Notes</label>
+                                    <input type="text" id="new-house-notes" placeholder="e.g. By front gate" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg transition shadow">
+                                Save House Address
+                            </button>
+                        </form>
+
+                        <!-- Bulk Upload Form -->
+                        <div id="form-bulk" class="space-y-3 hidden">
+                            <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-xs text-emerald-900 space-y-1">
+                                <p class="font-bold"><i class="fa-solid fa-file-excel text-emerald-600 mr-1"></i> Spreadsheet Bulk Upload</p>
+                                <p>Upload an Excel file (.xlsx/.xls) or CSV. We automatically detect columns for address, street, house number, eircode, estate, pickup time, tree count, and notes!</p>
+                            </div>
+                            <div class="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-emerald-500 transition cursor-pointer relative bg-slate-50" onclick="document.getElementById('bulk-file-input').click()">
+                                <input type="file" id="bulk-file-input" accept=".xlsx, .xls, .csv" onchange="handleBulkFileSelect(event)" class="hidden">
+                                <i class="fa-solid fa-cloud-arrow-up text-3xl text-emerald-600 mb-2"></i>
+                                <p class="text-sm font-semibold text-slate-700">Click to select spreadsheet file</p>
+                                <p class="text-xs text-slate-400 mt-1">Supports Excel and CSV format</p>
+                            </div>
+                            <div id="bulk-preview-container" class="hidden space-y-2">
+                                <p class="text-xs font-semibold text-slate-700" id="bulk-preview-title">Ready to import:</p>
+                                <div id="bulk-preview-list" class="max-h-40 overflow-y-auto text-xs space-y-1 bg-slate-100 p-2 rounded-lg border border-slate-200"></div>
+                                <button onclick="confirmBulkUpload()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-lg transition shadow text-xs">
+                                    Import All Houses
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Pile Form -->
+                        <form id="form-pile" onsubmit="handleAddPile(event)" class="space-y-3 hidden">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Pile Description (Optional)</label>
+                                <input type="text" id="new-pile-desc" placeholder="e.g. Corner of Captain's Hill" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">Number of Trees in Pile</label>
+                                <input type="number" id="new-pile-trees" min="1" value="3" required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            </div>
+                            <div class="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-xs text-emerald-900">
+                                <p class="font-bold mb-0.5"><i class="fa-solid fa-hand-pointer mr-1"></i> Drag & Drop Pin on Map:</p>
+                                <p>An orange drop pin has appeared on the map. Drag it to the exact location where you left the pile, then click below!</p>
+                            </div>
+                            <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg transition shadow">
+                                Confirm Pile Location
+                            </button>
+                        </form>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- SETTINGS MODAL (High z-index to avoid map blocking) -->
+    <div id="settings-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 space-y-4">
+            <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-lg text-slate-800"><i class="fa-solid fa-gear text-emerald-600 mr-2"></i>Storage & Sync Settings</h3>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">×</button>
+            </div>
+            
+            <div class="space-y-3 text-sm">
+                <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Storage Mode</label>
+                    <select id="setting-mode" onchange="toggleStorageModeInputs()" class="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="demo">Demo Mode (Local Browser Storage)</option>
+                        <option value="live">Live Mode (Firebase Firestore Sync)</option>
+                    </select>
+                </div>
+
+                <div id="firebase-config-container" class="space-y-2 hidden">
+                    <p class="text-xs text-slate-500">Enter your Firebase Web SDK configuration JSON below to sync multiple phones in real-time:</p>
+                    <textarea id="setting-firebase-json" rows="5" placeholder='{
+  "apiKey": "AIzaSy...",
+  "authDomain": "your-app.firebaseapp.com",
+  "projectId": "your-app",
+  "storageBucket": "your-app.appspot.com",
+  "messagingSenderId": "12345...",
+  "appId": "1:12345..."
+}' class="w-full font-mono text-xs p-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"></textarea>
+                </div>
+
+                <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-600">
+                    <p class="font-bold mb-1"><i class="fa-solid fa-lightbulb text-amber-500 mr-1"></i> Tip:</p>
+                    <p>Demo mode works instantly with preloaded sample data. Switch to Live Mode if you want collector teams and vans to sync live across devices!</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button onclick="closeSettingsModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 text-sm font-medium">Cancel</button>
+                <button onclick="saveSettings()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow">Save & Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[99999] flex flex-col space-y-2 pointer-events-none"></div>
+
+    <!-- FIREBASE MODULE SCRIPTS -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.FB = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken,
+            getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot
+        };
+        window.dispatchEvent(new Event('firebase-loaded'));
+    </script>
+
+    <!-- MAIN APP LOGIC -->
+    <script>
+        let map;
+        let markersLayer = L.layerGroup();
+        let dropMarker = null;
+        let currentTab = 'addresses';
+        let currentAddType = 'house';
+        let parsedBulkRows = [];
+        
+        let appState = {
+            mode: 'demo',
+            firebaseConfig: null,
+            addresses: [],
+            piles: [],
+            estates: {} // estateName -> { pickupTime }
+        };
+
+        let db = null;
+        let auth = null;
+        let unsubscribeAddresses = null;
+        let unsubscribePiles = null;
+        let unsubscribeEstates = null;
+
+        const DEFAULT_CENTER = [53.3622, -6.4908];
+
+        const SAMPLE_ADDRESSES = [
+            { id: 'h1', address: '12 Main Street', estate: 'Town Centre', pickupTime: '09:30 AM', lat: 53.3625, lng: -6.4912, trees: 1, collected: false, notes: 'By front gate', updatedAt: Date.now() },
+            { id: 'h2', address: '45 Confey Road', estate: 'Confey', pickupTime: '10:15 AM', lat: 53.3710, lng: -6.4850, trees: 2, collected: true, notes: 'Blue door', updatedAt: Date.now() },
+            { id: 'h3', address: '8 Castletown Park', estate: 'Castletown', pickupTime: '11:00 AM', lat: 53.3590, lng: -6.4950, trees: 1, collected: false, notes: 'Ring doorbell', updatedAt: Date.now() },
+            { id: 'h4', address: '22 Celbridge Road', estate: 'Celbridge Road', pickupTime: '11:45 AM', lat: 53.3810, lng: -6.5910, trees: 3, collected: false, notes: 'Driveway', updatedAt: Date.now() }
+        ];
+
+        const SAMPLE_PILES = [
+            { id: 'p1', description: 'Corner of Captains Hill', lat: 53.3630, lng: -6.4900, trees: 3, pickedUp: false, updatedAt: Date.now() },
+            { id: 'p2', description: 'Park Entrance', lat: 53.3680, lng: -6.4820, trees: 5, pickedUp: true, updatedAt: Date.now() }
+        ];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadSettingsFromStorage();
+            
+            if (appState.mode === 'demo') {
+                loadDemoData();
+            }
+
+            window.addEventListener('firebase-loaded', () => {
+                if (appState.mode === 'live' && appState.firebaseConfig) {
+                    initFirebaseLive();
+                }
+            });
+        });
+
+        function initMap() {
+            map = L.map('map').setView(DEFAULT_CENTER, 14);
+            // Dark Mode Tile Provider (CartoDB Dark Matter)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd'
+            }).addTo(map);
+            markersLayer.addTo(map);
+        }
+
+        function recenterMap() {
+            map.setView(DEFAULT_CENTER, 14);
+        }
+
+        function loadSettingsFromStorage() {
+            const savedMode = localStorage.getItem('scout_tree_mode');
+            const savedConfig = localStorage.getItem('scout_tree_fb_config');
+            
+            if (savedMode) appState.mode = savedMode;
+            if (savedConfig) {
+                try {
+                    appState.firebaseConfig = JSON.parse(savedConfig);
+                } catch(e) { console.error(e); }
+            }
+
+            document.getElementById('setting-mode').value = appState.mode;
+            if (savedConfig) {
+                document.getElementById('setting-firebase-json').value = savedConfig;
+            }
+            updateModeBadge();
+            toggleStorageModeInputs();
+        }
+
+        function updateModeBadge() {
+            const badge = document.getElementById('mode-badge');
+            if (appState.mode === 'live') {
+                badge.className = 'px-2.5 py-1 rounded-full font-semibold bg-emerald-600 text-white shadow-sm';
+                badge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> Live Mode (Synced)';
+            } else {
+                badge.className = 'px-2.5 py-1 rounded-full font-semibold bg-amber-500 text-white shadow-sm';
+                badge.innerHTML = '<i class="fa-solid fa-flask mr-1"></i> Demo Mode';
+            }
+        }
+
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        function toggleStorageModeInputs() {
+            const mode = document.getElementById('setting-mode').value;
+            const container = document.getElementById('firebase-config-container');
+            if (mode === 'live') {
+                container.classList.remove('hidden');
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
+        function saveSettings() {
+            const mode = document.getElementById('setting-mode').value;
+            const jsonStr = document.getElementById('setting-firebase-json').value;
+
+            if (mode === 'live') {
+                try {
+                    const parsed = JSON.parse(jsonStr);
+                    if (!parsed.apiKey || !parsed.projectId) {
+                        showToast('Invalid Firebase configuration JSON.', 'error');
+                        return;
+                    }
+                    appState.firebaseConfig = parsed;
+                    localStorage.setItem('scout_tree_fb_config', jsonStr);
+                } catch(e) {
+                    showToast('Invalid JSON format.', 'error');
+                    return;
+                }
+            }
+
+            appState.mode = mode;
+            localStorage.setItem('scout_tree_mode', mode);
+            closeSettingsModal();
+            updateModeBadge();
+
+            if (mode === 'live') {
+                initFirebaseLive();
+                showToast('Switched to Live Firebase Mode!', 'success');
+            } else {
+                cleanupFirebase();
+                loadDemoData();
+                showToast('Switched to Demo Mode (Local Storage).', 'success');
+            }
+        }
+
+        function loadDemoData() {
+            const localAddr = localStorage.getItem('scout_addresses');
+            const localPiles = localStorage.getItem('scout_piles');
+            const localEstates = localStorage.getItem('scout_estates');
+
+            appState.addresses = localAddr ? JSON.parse(localAddr) : SAMPLE_ADDRESSES;
+            appState.piles = localPiles ? JSON.parse(localPiles) : SAMPLE_PILES;
+            
+            if (localEstates) {
+                appState.estates = JSON.parse(localEstates);
+            } else {
+                rebuildEstatesFromAddresses();
+            }
+
+            refreshUI();
+        }
+
+        function persistDemoData() {
+            if (appState.mode === 'demo') {
+                localStorage.setItem('scout_addresses', JSON.stringify(appState.addresses));
+                localStorage.setItem('scout_piles', JSON.stringify(appState.piles));
+                localStorage.setItem('scout_estates', JSON.stringify(appState.estates));
+                refreshUI();
+            }
+        }
+
+        function rebuildEstatesFromAddresses() {
+            const mapEstates = {};
+            appState.addresses.forEach(h => {
+                const est = h.estate || 'General';
+                if (!mapEstates[est]) {
+                    mapEstates[est] = { pickupTime: h.pickupTime || '10:00 AM' };
+                }
+            });
+            appState.estates = mapEstates;
+        }
+
+        async function initFirebaseLive() {
+            if (!window.FB || !appState.firebaseConfig) return;
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, collection, onSnapshot } = window.FB;
+
+            try {
+                const app = initializeApp(appState.firebaseConfig, 'scoutApp_' + Math.random());
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                const user = auth.currentUser;
+                if (!user) return;
+
+                const addressesCol = collection(db, 'artifacts', appId, 'public', 'data', 'addresses');
+                const pilesCol = collection(db, 'artifacts', appId, 'public', 'data', 'piles');
+                const estatesCol = collection(db, 'artifacts', appId, 'public', 'data', 'estates');
+
+                if (unsubscribeAddresses) unsubscribeAddresses();
+                if (unsubscribePiles) unsubscribePiles();
+                if (unsubscribeEstates) unsubscribeEstates();
+
+                unsubscribeAddresses = onSnapshot(addressesCol, (snapshot) => {
+                    const items = [];
+                    snapshot.forEach(docSnap => {
+                        items.push({ id: docSnap.id, ...docSnap.data() });
+                    });
+                    appState.addresses = items;
+                    rebuildEstatesFromAddresses();
+                    refreshUI();
+                }, (err) => console.error("Addresses sync error:", err));
+
+                unsubscribePiles = onSnapshot(pilesCol, (snapshot) => {
+                    const items = [];
+                    snapshot.forEach(docSnap => {
+                        items.push({ id: docSnap.id, ...docSnap.data() });
+                    });
+                    appState.piles = items;
+                    refreshUI();
+                }, (err) => console.error("Piles sync error:", err));
+
+                unsubscribeEstates = onSnapshot(estatesCol, (snapshot) => {
+                    const estMap = {};
+                    snapshot.forEach(docSnap => {
+                        estMap[docSnap.id] = docSnap.data();
+                    });
+                    if (Object.keys(estMap).length > 0) {
+                        appState.estates = estMap;
+                    }
+                    refreshUI();
+                }, (err) => console.error("Estates sync error:", err));
+
+                showToast('Connected to Live Database!', 'success');
+
+            } catch (err) {
+                console.error("Firebase init failed:", err);
+                showToast('Failed to connect to Firebase. Check config.', 'error');
+            }
+        }
+
+        function cleanupFirebase() {
+            if (unsubscribeAddresses) { unsubscribeAddresses(); unsubscribeAddresses = null; }
+            if (unsubscribePiles) { unsubscribePiles(); unsubscribePiles = null; }
+            if (unsubscribeEstates) { unsubscribeEstates(); unsubscribeEstates = null; }
+        }
+
+        async function addAddressRecord(addr, estate, pickupTime, trees, notes, lat, lng) {
+            const id = 'h_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            const estName = estate || 'General';
+            const timeVal = pickupTime || (appState.estates[estName] ? appState.estates[estName].pickupTime : '10:00 AM');
+
+            const newRecord = {
+                id,
+                address: addr,
+                estate: estName,
+                pickupTime: timeVal,
+                trees: parseInt(trees) || 1,
+                notes: notes || '',
+                lat,
+                lng,
+                collected: false,
+                updatedAt: Date.now()
+            };
+
+            if (!appState.estates[estName]) {
+                appState.estates[estName] = { pickupTime: timeVal };
+            }
+
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, setDoc } = window.FB;
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'addresses', id), newRecord);
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'estates', estName), { pickupTime: timeVal });
+            } else {
+                appState.addresses.unshift(newRecord);
+                persistDemoData();
+            }
+        }
+
+        async function updateEstateTime(estateName, newTime) {
+            appState.estates[estateName] = { pickupTime: newTime };
+            // Update all houses in this estate
+            appState.addresses.forEach(h => {
+                if (h.estate === estateName) {
+                    h.pickupTime = newTime;
+                }
+            });
+
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, setDoc } = window.FB;
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'estates', estateName), { pickupTime: newTime });
+                // Also update houses in live db
+                for (let h of appState.addresses) {
+                    if (h.estate === estateName) {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'addresses', h.id), h, { merge: true });
+                    }
+                }
+            } else {
+                persistDemoData();
+            }
+            showToast(`Updated pickup time for ${estateName} to ${newTime}`, 'success');
+        }
+
+        async function toggleHouseCollected(id) {
+            const house = appState.addresses.find(h => h.id === id);
+            if (!house) return;
+            const newStatus = !house.collected;
+
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, updateDoc } = window.FB;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'addresses', id), { collected: newStatus });
+            } else {
+                house.collected = newStatus;
+                persistDemoData();
+            }
+            showToast(newStatus ? 'Marked as collected!' : 'Marked as pending.', 'info');
+        }
+
+        async function deleteHouseRecord(id) {
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, deleteDoc } = window.FB;
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'addresses', id));
+            } else {
+                appState.addresses = appState.addresses.filter(h => h.id !== id);
+                rebuildEstatesFromAddresses();
+                persistDemoData();
+            }
+            showToast('House removed.', 'info');
+        }
+
+        async function addPileRecord(description, trees, lat, lng) {
+            const id = 'p_' + Date.now() + Math.random().toString(36).substr(2, 5);
+            const newRecord = {
+                id,
+                description: description || 'Tree Pile',
+                trees: parseInt(trees) || 1,
+                lat,
+                lng,
+                pickedUp: false,
+                updatedAt: Date.now()
+            };
+
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, setDoc } = window.FB;
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'piles', id), newRecord);
+            } else {
+                appState.piles.unshift(newRecord);
+                persistDemoData();
+            }
+            showToast('Tree pile dropped!', 'success');
+        }
+
+        async function togglePilePickedUp(id) {
+            const pile = appState.piles.find(p => p.id === id);
+            if (!pile) return;
+            const newStatus = !pile.pickedUp;
+
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, updateDoc } = window.FB;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'piles', id), { pickedUp: newStatus });
+            } else {
+                pile.pickedUp = newStatus;
+                persistDemoData();
+            }
+            showToast(newStatus ? 'Pile marked as picked up by van!' : 'Pile marked pending pickup.', 'info');
+        }
+
+        async function deletePileRecord(id) {
+            if (appState.mode === 'live' && db) {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'scout-tree-collector-v1';
+                const { doc, deleteDoc } = window.FB;
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'piles', id));
+            } else {
+                appState.piles = appState.piles.filter(p => p.id !== id);
+                persistDemoData();
+            }
+            showToast('Pile removed.', 'info');
+        }
+
+        async function geocodeAddressString(addressStr) {
+            try {
+                const query = encodeURIComponent(addressStr);
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+                }
+            } catch (e) {
+                console.warn("Geocoding network error, using default offset");
+            }
+            return {
+                lat: DEFAULT_CENTER[0] + (Math.random() - 0.5) * 0.02,
+                lng: DEFAULT_CENTER[1] + (Math.random() - 0.5) * 0.02
+            };
+        }
+
+        async function handleAddHouse(e) {
+            e.preventDefault();
+            const addr = document.getElementById('new-house-addr').value;
+            const estate = document.getElementById('new-house-estate').value;
+            const time = document.getElementById('new-house-time').value;
+            const trees = document.getElementById('new-house-trees').value;
+            const notes = document.getElementById('new-house-notes').value;
+
+            showToast('Geocoding address...', 'info');
+            const coords = await geocodeAddressString(addr);
+
+            await addAddressRecord(addr, estate, time, trees, notes, coords.lat, coords.lng);
+            document.getElementById('form-house').reset();
+            switchTab('addresses');
+            showToast('House added successfully!', 'success');
+        }
+
+        async function handleAddPile(e) {
+            e.preventDefault();
+            const desc = document.getElementById('new-pile-desc').value.trim();
+            const trees = document.getElementById('new-pile-trees').value;
+
+            const latLng = dropMarker ? dropMarker.getLatLng() : map.getCenter();
+            await addPileRecord(desc, trees, latLng.lat, latLng.lng);
+            document.getElementById('form-pile').reset();
+            switchTab('piles');
+        }
+
+        // SMART SPREADSHEET BULK UPLOAD HANDLER
+        function handleBulkFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                    if (jsonRows.length === 0) {
+                        showToast('Uploaded spreadsheet is empty.', 'error');
+                        return;
+                    }
+
+                    parsedBulkRows = jsonRows.map(row => smartMapRow(row));
+                    renderBulkPreview();
+                } catch (err) {
+                    console.error("Spreadsheet parse error:", err);
+                    showToast('Failed to parse spreadsheet file.', 'error');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function smartMapRow(row) {
+            // Normalize keys to lowercase for robust keyword matching
+            const keys = Object.keys(row);
+            const getVal = (keywords) => {
+                const foundKey = keys.find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
+                return foundKey !== undefined ? String(row[foundKey]).trim() : '';
+            };
+
+            let fullAddr = getVal(['address', 'location', 'addr', 'house address']);
+            let street = getVal(['street', 'road', 'lane', 'avenue', 'address line', 'street name']);
+            let number = getVal(['number', 'house no', 'house_no', 'no.', 'no', 'house number']);
+            let eircode = getVal(['eircode', 'postcode', 'zip', 'postal', 'code']);
+            
+            let address = '';
+            if (fullAddr) {
+                address = fullAddr;
+            } else {
+                let parts = [];
+                if (number) parts.push(number);
+                if (street) parts.push(street);
+                if (eircode) parts.push(eircode);
+                address = parts.join(', ') || 'Unknown Address';
+            }
+
+            let treesVal = getVal(['tree', 'trees', 'quantity', 'count', 'amount', 'no of trees']);
+            let trees = parseInt(treesVal) || 1;
+
+            let notes = getVal(['note', 'notes', 'comment', 'comments', 'details', 'instructions']);
+            let estate = getVal(['estate', 'area', 'neighborhood', 'zone', 'group', 'town']) || 'General';
+            let pickupTime = getVal(['time', 'pickup time', 'collection time', 'pickup', 'schedule']) || '10:00 AM';
+
+            return { address, trees, notes, estate, pickupTime };
+        }
+
+        function renderBulkPreview() {
+            const container = document.getElementById('bulk-preview-container');
+            const list = document.getElementById('bulk-preview-list');
+            document.getElementById('bulk-preview-title').innerText = `Ready to import (${parsedBulkRows.length} houses found):`;
+            
+            container.classList.remove('hidden');
+            list.innerHTML = parsedBulkRows.slice(0, 15).map(r => `
+                <div class="bg-white p-2 rounded border border-slate-200 flex justify-between items-center">
+                    <div><strong>${r.address}</strong> <span class="text-slate-500">(${r.estate} • ${r.trees} tree)</span></div>
+                    <span class="text-emerald-700 font-medium">${r.pickupTime}</span>
+                </div>
+            `).join('') + (parsedBulkRows.length > 15 ? `<div class="text-center text-slate-400 py-1">...and ${parsedBulkRows.length - 15} more rows</div>` : '');
+        }
+
+        async function confirmBulkUpload() {
+            if (parsedBulkRows.length === 0) return;
+            showToast(`Importing ${parsedBulkRows.length} houses with geocoding...`, 'info');
+
+            let count = 0;
+            for (let row of parsedBulkRows) {
+                const coords = await geocodeAddressString(row.address);
+                await addAddressRecord(row.address, row.estate, row.pickupTime, row.trees, row.notes, coords.lat, coords.lng);
+                count++;
+            }
+
+            parsedBulkRows = [];
+            document.getElementById('bulk-preview-container').classList.add('hidden');
+            switchTab('addresses');
+            showToast(`Successfully imported ${count} houses!`, 'success');
+        }
+
+        function triggerQuickAddModal() {
+            switchTab('add');
+            setAddType('house');
+        }
+
+        function openDropPileModal() {
+            switchTab('add');
+            setAddType('pile');
+        }
+
+        function refreshUI() {
+            document.getElementById('count-houses').innerText = appState.addresses.length;
+            document.getElementById('count-piles').innerText = appState.piles.length;
+            document.getElementById('count-estates').innerText = Object.keys(appState.estates).length;
+
+            updateEstateDropdowns();
+            renderLists();
+            renderEstatesList();
+            renderMapMarkers();
+        }
+
+        function updateEstateDropdowns() {
+            const datalist = document.getElementById('estates-datalist');
+            const filterSelect = document.getElementById('filter-estate');
+            
+            const estateNames = Object.keys(appState.estates).sort();
+            
+            datalist.innerHTML = estateNames.map(e => `<option value="${e}">`).join('');
+            
+            const currentFilter = filterSelect.value;
+            filterSelect.innerHTML = `<option value="all">All Estates (${estateNames.length})</option>` + 
+                estateNames.map(e => `<option value="${e}">${e}</option>`).join('');
+            if (estateNames.includes(currentFilter)) {
+                filterSelect.value = currentFilter;
+            }
+        }
+
+        function renderMapMarkers() {
+            markersLayer.clearLayers();
+
+            // Render Houses (Green if pending, grey if collected)
+            appState.addresses.forEach(house => {
+                const color = house.collected ? '#64748b' : '#10b981';
+                const iconHtml = `<div style="background-color: ${color}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 2px solid #0f172a; box-shadow: 0 2px 6px rgba(0,0,0,0.6); font-size: 11px;"><i class="fa-solid fa-tree"></i></div>`;
+                
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'custom-map-icon',
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14]
+                });
+
+                const marker = L.marker([house.lat, house.lng], { icon: customIcon });
+                
+                const popupContent = `
+                    <div class="p-1 space-y-1 text-xs text-slate-800">
+                        <p class="font-bold text-sm">${house.address}</p>
+                        <p><i class="fa-solid fa-map-location-dot text-emerald-600 mr-1"></i> Estate: <strong>${house.estate || 'General'}</strong></p>
+                        <p><i class="fa-solid fa-clock text-amber-600 mr-1"></i> Pickup: <strong>${house.pickupTime || '10:00 AM'}</strong></p>
+                        <p><i class="fa-solid fa-tree text-emerald-600 mr-1"></i> Trees: <strong>${house.trees}</strong></p>
+                        ${house.notes ? `<p class="text-slate-600">Notes: ${house.notes}</p>` : ''}
+                        <p class="font-semibold ${house.collected ? 'text-slate-500' : 'text-emerald-600'}">${house.collected ? '✓ Collected' : '⏳ Pending Collection'}</p>
+                        <div class="pt-2 flex gap-2">
+                            <button onclick="toggleHouseCollected('${house.id}')" class="px-2.5 py-1 ${house.collected ? 'bg-slate-600 hover:bg-slate-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white rounded font-medium transition">
+                                ${house.collected ? 'Undo' : 'Mark Collected'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                markersLayer.addLayer(marker);
+            });
+
+            // Render Piles (Green if pending van, grey if picked up)
+            appState.piles.forEach(pile => {
+                const color = pile.pickedUp ? '#64748b' : '#059669';
+                const iconHtml = `<div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 2px solid #0f172a; box-shadow: 0 2px 6px rgba(0,0,0,0.6); font-size: 12px;"><i class="fa-solid fa-tree"></i><i class="fa-solid fa-tree text-[9px] -ml-1 mt-2"></i></div>`;
+                
+                const customIcon = L.divIcon({
+                    html: iconHtml,
+                    className: 'custom-map-icon',
+                    iconSize: [34, 34],
+                    iconAnchor: [17, 17]
+                });
+
+                const marker = L.marker([pile.lat, pile.lng], { icon: customIcon });
+                
+                const popupContent = `
+                    <div class="p-1 space-y-1 text-xs text-slate-800">
+                        <p class="font-bold text-sm">Tree Pile: ${pile.description}</p>
+                        <p><i class="fa-solid fa-tree text-emerald-600 mr-1"></i> Count: <strong>${pile.trees} trees</strong></p>
+                        <p class="font-semibold ${pile.pickedUp ? 'text-slate-500' : 'text-emerald-600'}">${pile.pickedUp ? '✓ Picked Up by Van' : '🚛 Pending Van Pickup'}</p>
+                        <div class="pt-2 flex gap-2">
+                            <button onclick="togglePilePickedUp('${pile.id}')" class="px-2.5 py-1 ${pile.pickedUp ? 'bg-slate-600 hover:bg-slate-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white rounded font-medium transition">
+                                ${pile.pickedUp ? 'Undo' : 'Mark Picked Up'}
+                            </button>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                markersLayer.addLayer(marker);
+            });
+        }
+
+        function renderLists() {
+            const search = (document.getElementById('search-address').value || '').toLowerCase();
+            const filterStatus = document.getElementById('filter-address').value;
+            const filterEstate = document.getElementById('filter-estate').value;
+            const container = document.getElementById('addresses-list');
+
+            const filtered = appState.addresses.filter(h => {
+                const matchSearch = h.address.toLowerCase().includes(search) || (h.notes && h.notes.toLowerCase().includes(search)) || (h.estate && h.estate.toLowerCase().includes(search));
+                const matchEstate = filterEstate === 'all' || h.estate === filterEstate;
+                let matchStatus = true;
+                if (filterStatus === 'pending') matchStatus = !h.collected;
+                if (filterStatus === 'collected') matchStatus = h.collected;
+                return matchSearch && matchEstate && matchStatus;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">No matching addresses found.</div>`;
+            } else {
+                container.innerHTML = filtered.map(h => `
+                    <div class="bg-white p-3 rounded-xl border ${h.collected ? 'border-slate-300 bg-slate-50/70' : 'border-emerald-200'} shadow-sm flex items-center justify-between gap-3">
+                        <div class="flex-grow cursor-pointer" onclick="zoomToLocation(${h.lat}, ${h.lng})">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full ${h.collected ? 'bg-slate-500' : 'bg-emerald-500'} inline-block"></span>
+                                <h4 class="font-bold text-xs sm:text-sm text-slate-800 ${h.collected ? 'line-through text-slate-500' : ''}">${h.address}</h4>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">
+                                <span class="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-medium">${h.estate || 'General'}</span> • 
+                                <span class="text-amber-700 font-medium"><i class="fa-solid fa-clock mr-0.5"></i>${h.pickupTime || '10:00 AM'}</span> • 
+                                <i class="fa-solid fa-tree mr-1 text-emerald-600"></i>${h.trees} tree(s) ${h.notes ? '• ' + h.notes : ''}
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                            <button onclick="toggleHouseCollected('${h.id}')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold ${h.collected ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'} transition shadow-sm">
+                                ${h.collected ? 'Undo' : 'Collect'}
+                            </button>
+                            <button onclick="deleteHouseRecord('${h.id}')" class="text-slate-300 hover:text-red-500 p-1.5" title="Delete">
+                                <i class="fa-solid fa-trash text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            const pilesContainer = document.getElementById('piles-list');
+            if (appState.piles.length === 0) {
+                pilesContainer.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">No tree piles dropped yet.</div>`;
+            } else {
+                pilesContainer.innerHTML = appState.piles.map(p => `
+                    <div class="bg-white p-3 rounded-xl border ${p.pickedUp ? 'border-slate-300 bg-slate-50/70' : 'border-emerald-200'} shadow-sm flex items-center justify-between gap-3">
+                        <div class="flex-grow cursor-pointer" onclick="zoomToLocation(${p.lat}, ${p.lng})">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full ${p.pickedUp ? 'bg-slate-500' : 'bg-emerald-600'} inline-block"></span>
+                                <h4 class="font-bold text-xs sm:text-sm text-slate-800 ${p.pickedUp ? 'line-through text-slate-500' : ''}">${p.description}</h4>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5"><i class="fa-solid fa-tree mr-1 text-emerald-600"></i>${p.trees} trees in pile • <span class="${p.pickedUp ? 'text-slate-500 font-semibold' : 'text-emerald-700 font-semibold'}">${p.pickedUp ? 'Picked Up' : 'Pending Van'}</span></p>
+                        </div>
+                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                            <button onclick="togglePilePickedUp('${p.id}')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold ${p.pickedUp ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-emerald-600 text-white hover:bg-emerald-700'} transition shadow-sm">
+                                ${p.pickedUp ? 'Undo' : 'Van Pickup'}
+                            </button>
+                            <button onclick="deletePileRecord('${p.id}')" class="text-slate-300 hover:text-red-500 p-1.5" title="Delete">
+                                <i class="fa-solid fa-trash text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function renderEstatesList() {
+            const container = document.getElementById('estates-list');
+            const estatesKeys = Object.keys(appState.estates).sort();
+
+            if (estatesKeys.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-slate-400 text-xs">No estates recorded yet.</div>`;
+                return;
+            }
+
+            container.innerHTML = estatesKeys.map(estName => {
+                const estData = appState.estates[estName];
+                const houseCount = appState.addresses.filter(h => h.estate === estName).length;
+                const collectedCount = appState.addresses.filter(h => h.estate === estName && h.collected).length;
+
+                return `
+                    <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                        <div class="flex justify-between items-center">
+                            <h4 class="font-bold text-sm text-slate-800"><i class="fa-solid fa-map-location-dot text-emerald-600 mr-1.5"></i>${estName}</h4>
+                            <span class="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full">${collectedCount}/${houseCount} Collected</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+                            <span class="text-slate-500">Scheduled Pickup Time:</span>
+                            <div class="flex items-center gap-1.5">
+                                <input type="text" id="estate-time-${estName}" value="${estData.pickupTime || '10:00 AM'}" class="px-2 py-1 border border-slate-300 rounded text-xs w-24 text-center font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                <button onclick="saveEstateTime('${estName}')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded transition">Update</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function saveEstateTime(estName) {
+            const input = document.getElementById(`estate-time-${estName}`);
+            if (!input) return;
+            const newTime = input.value.trim();
+            updateEstateTime(estName, newTime);
+        }
+
+        function zoomToLocation(lat, lng) {
+            map.setView([lat, lng], 17);
+            if (window.innerWidth < 768) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            ['addresses', 'estates', 'piles', 'add'].forEach(t => {
+                const btn = document.getElementById(`tab-${t}`);
+                const view = document.getElementById(`view-${t}`);
+                if (t === tab) {
+                    btn.className = 'flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-semibold text-emerald-700 border-b-2 border-emerald-600 bg-white transition flex items-center justify-center gap-1';
+                    view.classList.remove('hidden');
+                } else {
+                    btn.className = 'flex-1 min-w-[75px] py-3 text-xs sm:text-sm font-medium text-slate-500 hover:text-slate-700 transition flex items-center justify-center gap-1';
+                    view.classList.add('hidden');
+                }
+            });
+            updateDropMarker();
+        }
+
+        function setAddType(type) {
+            currentAddType = type;
+            const houseBtn = document.getElementById('subtab-house');
+            const bulkBtn = document.getElementById('subtab-bulk');
+            const pileBtn = document.getElementById('subtab-pile');
+            const houseForm = document.getElementById('form-house');
+            const bulkForm = document.getElementById('form-bulk');
+            const pileForm = document.getElementById('form-pile');
+
+            [houseBtn, bulkBtn, pileBtn].forEach(b => b.className = 'flex-1 py-1.5 text-xs font-medium rounded-md text-slate-600 transition');
+            [houseForm, bulkForm, pileForm].forEach(f => f.classList.add('hidden'));
+
+            if (type === 'house') {
+                houseBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-white shadow text-slate-800 transition';
+                houseForm.classList.remove('hidden');
+            } else if (type === 'bulk') {
+                bulkBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-white shadow text-slate-800 transition';
+                bulkForm.classList.remove('hidden');
+            } else {
+                pileBtn.className = 'flex-1 py-1.5 text-xs font-semibold rounded-md bg-white shadow text-emerald-800 transition';
+                pileForm.classList.remove('hidden');
+            }
+            updateDropMarker();
+        }
+
+        function updateDropMarker() {
+            if (currentTab === 'add' && currentAddType === 'pile') {
+                if (!dropMarker) {
+                    const center = map.getCenter();
+                    const iconHtml = `<div style="background-color: #f59e0b; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 3px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.8); font-size: 15px;"><i class="fa-solid fa-map-pin"></i></div>`;
+                    const customIcon = L.divIcon({
+                        html: iconHtml,
+                        className: 'drop-marker-icon',
+                        iconSize: [36, 36],
+                        iconAnchor: [18, 36]
+                    });
+                    dropMarker = L.marker(center, { draggable: true, icon: customIcon }).addTo(map);
+                    dropMarker.bindPopup("<b>Drag this pin</b> to where you left the pile!").openPopup();
+                }
+            } else {
+                if (dropMarker) {
+                    map.removeLayer(dropMarker);
+                    dropMarker = null;
+                }
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgCol = 'bg-slate-800 text-white';
+            if (type === 'success') bgCol = 'bg-emerald-600 text-white';
+            if (type === 'error') bgCol = 'bg-red-600 text-white';
+            if (type === 'info') bgCol = 'bg-blue-600 text-white';
+
+            toast.className = `${bgCol} px-4 py-3 rounded-xl shadow-lg text-xs sm:text-sm font-medium transition transform translate-y-2 opacity-0 flex items-center gap-2 pointer-events-auto`;
+            toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${message}</span>`;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
